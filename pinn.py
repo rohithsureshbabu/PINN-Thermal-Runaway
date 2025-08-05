@@ -37,9 +37,11 @@ class ThermalPINN(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 nn.init.zeros_(m.bias)
 
-    def forward(self, x, y, t): # Input concatenation
+    def forward(self, x, y, t):
         inp = torch.cat([x, y, t], dim=1)
-        return self.net(inp)
+        raw_out = self.net(inp)
+        return T_surface + x * raw_out
+
 
 
 # Region selector: returns kx, ky based on (x,y)
@@ -94,8 +96,8 @@ def loss_bc(model, x_bc, y_bc, t_bc):
     t_bc = t_bc.clone().detach().requires_grad_()
 
     # Dirichlet: Left boundary: x = 0
-    T_isc = model(torch.zeros_like(y_bc), y_bc, t_bc)
-    bc1   = torch.mean((T_isc - T_surface)**2)
+    # already defined in the PINN class to concatenate T surface 
+    # as T = Tsurface + x.NN
 
     # Right boundary: x = Lx, convective
     xR = Lx * torch.ones_like(y_bc)
@@ -122,7 +124,7 @@ def loss_bc(model, x_bc, y_bc, t_bc):
               grad_outputs=torch.ones_like(Tt), create_graph=True)[0]
     bc4 = torch.mean(Tt_y**2)
 
-    return bc1 + bc2 + bc3 + bc4
+    return bc2 + bc3 + bc4
 
 
 def loss_energy_balance(model, x, y, tf):
@@ -158,7 +160,7 @@ for epoch in range(10000):
     L_bc = loss_bc(model, x_bc, y_bc, t_bc)/1e8
     L_energy = loss_energy_balance(model, x_f, y_f, t_f.max())/1e8
 
-    loss = L_pde + L_ic + L_bc + L_energy**2
+    loss = L_pde +  L_ic + L_bc + L_energy**2
 
     opt.zero_grad()
     loss.backward()
@@ -222,7 +224,7 @@ print("Training complete.")
 
 # %%
 # Evaluation time
-t_eval = 2
+t_eval = 30
 
 # Grid resolution
 nx, ny = 1000, 500
@@ -244,7 +246,7 @@ with torch.no_grad():
 T_grid = T_pred.cpu().numpy().reshape(nx, ny)
 
 plt.figure(figsize=(8, 4))
-cp = plt.contourf(X.cpu(), Y.cpu(), T_grid, 50, cmap='hot')
+cp = plt.contourf(X.cpu(), Y.cpu(), T_grid, 50, cmap='hot_r')
 plt.colorbar(cp, label='Temperature [K]')
 plt.xlabel('x [m]')
 plt.ylabel('y [m]')
@@ -278,5 +280,5 @@ ax.set_zlabel('T [K]')
 ax.set_title(f'Temperature Surface at t = {t_eval}s')
 plt.tight_layout()
 plt.show()
-# %%
 '''
+# %%
